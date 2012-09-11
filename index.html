@@ -1,0 +1,250 @@
+<!--
+TODO - dynamic page length
+-->
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.0/jquery.min.js" type="text/javascript"></script>
+    <script type="text/javascript" src="http://mbostock.github.com/d3/d3.js?1.27.2"></script>
+    <script type="text/javascript" src="http://mbostock.github.com/d3/d3.layout.js?1.27.2"></script>
+    <style type="text/css">
+
+.node rect {
+  cursor: pointer;
+  fill: #fff;
+  fill-opacity: .5;
+  stroke: #3182bd;
+  stroke-width: 1.5px;
+}
+
+.node text {
+  font: 10px sans-serif;
+  pointer-events: none;
+}
+
+path.link {
+  fill: none;
+  stroke: #9ecae1;
+  stroke-width: 1.5px;
+}
+
+    </style>
+</head>
+<body>
+<input size=30 name="searchbox" type="text" onkeyup="searchTree(this.value);">
+
+<div id="chart"></div>
+
+<script type="text/javascript">
+
+var w = 960,
+    h = 800,
+    i = 0,
+    barHeight = 20,
+    barWidth = w * .8,
+    duration = 400,
+    nodes,
+    root;
+
+var tree = d3.layout.tree()
+    .size([h, 100]);
+
+var diagonal = d3.svg.diagonal()
+    .projection(function(d) { return [d.y, d.x]; });
+
+var vis = d3.select("#chart").append("svg:svg")
+    .attr("width", w)
+    .attr("height", h)
+  .append("svg:g")
+    .attr("transform", "translate(20,30)");
+
+d3.json("NAICS.json", function(json) {
+  root = json;
+  root.x0 = 0;
+  root.y0 = 0;
+  root.isMatch = true;
+
+  update(root);
+  //this closes all of the nodes, and sets the parent so we can find it again
+  root.children.forEach(closeAllNodes);
+
+  update(root);
+
+});
+
+function closeAllNodes(d) {
+  if (d.parent) {    
+    d._parent = d.parent;
+  }
+  if (d.children) {
+    d.children.forEach(closeAllNodes);
+    hideChildren(d);
+  }
+}
+
+
+function searchAll(d, searchString) {
+	var stringLoc = d.name.toLowerCase().indexOf(searchString.toLowerCase());
+
+	//search visible and hidden children
+	if (d.children) {
+		d.children.forEach(function(d) {searchAll(d, searchString);})
+	}
+	if (d._children) {
+		d._children.forEach(function(d) {searchAll(d, searchString);})
+	}
+
+	if(stringLoc > -1){
+		d.isMatch = true;
+		openUpwards(d);
+	} else {
+		d.isMatch = false;
+	}
+}
+
+function openUpwards(d){
+	if(d._children){ //if you're not open, you should be open
+		d.children = d._children;
+		d._children = null;
+	}
+	if(d._parent){
+		openUpwards(d._parent);
+	}
+}
+
+
+function searchTree(searchString) {
+  //first close all nodes    
+  closeAllNodes(root);
+	if (searchString.length > 2){
+		searchAll(root, searchString);
+		update(root);
+	}
+}
+
+function update(source) {
+
+  // Compute the flattened node list. TODO use d3.layout.hierarchy.
+  nodes = tree.nodes(root);
+  
+  max_height = 0;
+  // Compute the "layout".
+  nodes.forEach(function(n, i) {
+    n.x = i * barHeight;
+    max_height = n.x;
+  });
+
+  $("svg:first").attr("height", max_height+100);
+  //d3.select("#chart").children(0).attr("height", max_height);
+  
+  // Update the nodes…
+  var node = vis.selectAll("g.node")
+      .data(nodes, function(d) { return d.id || (d.id = ++i); });
+  
+  var nodeEnter = node.enter().append("svg:g")
+      .attr("class", "node")
+      .attr("transform", function(d) { return "translate(" + source.y0 + "," + source.x0 + ")"; })
+      .style("opacity", 1e-6);
+
+  // Enter any new nodes at the parent's previous position.
+  nodeEnter.append("svg:rect")
+      .attr("y", -barHeight / 2)
+      .attr("height", barHeight)
+      .attr("width", barWidth)
+      .style("fill", color)
+      .on("click", click);
+  
+  nodeEnter.append("svg:text")
+      .attr("dy", 3.5)
+      .attr("dx", 5.5)
+      .text(function(d) { return d.name; });
+  
+  // Transition nodes to their new position.
+  nodeEnter.transition()
+      .duration(duration)
+      .attr("transform", function(d) { return "translate(" + d.y + "," + d.x + ")"; })
+      .style("opacity", 1);
+  
+  node.transition()
+      .duration(duration)
+      .attr("transform", function(d) { return "translate(" + d.y + "," + d.x + ")"; })
+      .style("opacity", 1)
+    .select("rect")
+      .style("fill", color);
+  
+  // Transition exiting nodes to the parent's new position.
+  node.exit().transition()
+      .duration(duration)
+      .attr("transform", function(d) { return "translate(" + source.y + "," + source.x + ")"; })
+      .style("opacity", 1e-6)
+      .remove();
+  
+  // Update the links…
+  var link = vis.selectAll("path.link")
+      .data(tree.links(nodes), function(d) { return d.target.id; });
+  
+  // Enter any new links at the parent's previous position.
+  link.enter().insert("svg:path", "g")
+      .attr("class", "link")
+      .attr("d", function(d) {
+        var o = {x: source.x0, y: source.y0};
+        return diagonal({source: o, target: o});
+      })
+    .transition()
+      .duration(duration)
+      .attr("d", diagonal);
+  
+  // Transition links to their new position.
+  link.transition()
+      .duration(duration)
+      .attr("d", diagonal);
+  
+  // Transition exiting nodes to the parent's new position.
+  link.exit().transition()
+      .duration(duration)
+      .attr("d", function(d) {
+        var o = {x: source.x, y: source.y};
+        return diagonal({source: o, target: o});
+      })
+      .remove();
+  
+  // Stash the old positions for transition.
+  nodes.forEach(function(d) {
+    d.x0 = d.x;
+    d.y0 = d.y;
+  });
+}
+
+// Toggle children on click.
+function click(d) {
+  if (d.children) {
+    d._children = d.children;
+    d.children = null;
+  } else {
+    d.children = d._children;
+    d._children = null;
+  }
+  update(d);
+}
+
+//same as above, but no update
+function hideChildren(d) {
+  if (d.children) {
+    d._children = d.children;
+    d.children = null;
+  }
+}
+
+function color(d) {
+  if (d.isMatch) { 
+	  return "#FFFFA0";
+  } else {
+  	return d._children ? "#3182bd" : d.children ? "#c6dbef" : "#c6dbef";
+  }
+}
+
+    </script>
+  </body>
+</html>
